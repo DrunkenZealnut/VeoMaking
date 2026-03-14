@@ -13,11 +13,6 @@ import { getCostEstimate, formatCost } from "@/lib/cost";
 
 type Status = "idle" | "generating" | "polling" | "completed" | "error";
 
-interface BatchProgress {
-  current: number;
-  total: number;
-}
-
 interface VideoStore {
   // 프롬프트
   promptComponents: PromptComponents;
@@ -48,19 +43,13 @@ interface VideoStore {
   errorMessage: string | null;
   setErrorMessage: (msg: string | null) => void;
 
-  // 결과 (복수 영상 지원)
-  videoUrls: string[];
-  addVideoUrl: (url: string) => void;
-  clearVideoUrls: () => void;
-
-  // 배치 진행 상태
-  batchProgress: BatchProgress | null;
-  setBatchProgress: (p: BatchProgress | null) => void;
+  // 결과
+  videoUrl: string | null;
+  setVideoUrl: (url: string | null) => void;
 
   // 비용
   getCostString: () => string;
   getCostValue: () => number;
-  getTotalCostString: () => string;
 
   // 참조 이미지 (Image-to-Video)
   referenceImages: ReferenceImage[];
@@ -130,14 +119,9 @@ export const useVideoStore = create<VideoStore>((set, get) => ({
   errorMessage: null,
   setErrorMessage: (errorMessage) => set({ errorMessage }),
 
-  // 결과 (복수 영상)
-  videoUrls: [],
-  addVideoUrl: (url) => set((s) => ({ videoUrls: [...s.videoUrls, url] })),
-  clearVideoUrls: () => set({ videoUrls: [] }),
-
-  // 배치 진행 상태
-  batchProgress: null,
-  setBatchProgress: (batchProgress) => set({ batchProgress }),
+  // 결과
+  videoUrl: null,
+  setVideoUrl: (videoUrl) => set({ videoUrl }),
 
   // 비용
   getCostString: () => {
@@ -148,12 +132,6 @@ export const useVideoStore = create<VideoStore>((set, get) => ({
   getCostValue: () => {
     const { resolution, duration, modelType } = get();
     return getCostEstimate(resolution, duration, modelType).estimatedCost;
-  },
-  getTotalCostString: () => {
-    const { resolution, duration, modelType, referenceImages } = get();
-    const unitCost = getCostEstimate(resolution, duration, modelType).estimatedCost;
-    const count = Math.max(1, referenceImages.length);
-    return formatCost(unitCost * count);
   },
 
   // 참조 이미지
@@ -202,8 +180,7 @@ export const useVideoStore = create<VideoStore>((set, get) => ({
         status: "idle",
         generation: null,
         errorMessage: null,
-        videoUrls: [],
-        batchProgress: null,
+        videoUrl: null,
         referenceImages: [],
         useEnhanced: false,
         helperOpen: false,

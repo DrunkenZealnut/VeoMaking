@@ -198,7 +198,7 @@ export default function ImageUpload() {
 
       {referenceImages.length > 1 && (
         <p className="text-xs text-blue-400">
-          📋 이미지 순서대로 영상이 순차 생성됩니다. 드래그하여 순서를 변경할 수 있습니다.
+          📋 {referenceImages.length}개 이미지가 순서대로 하나의 영상에 반영됩니다. 드래그하여 순서를 변경할 수 있습니다.
         </p>
       )}
 

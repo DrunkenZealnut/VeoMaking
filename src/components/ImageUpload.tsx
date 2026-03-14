@@ -5,16 +5,21 @@ import { useVideoStore } from "@/store/useVideoStore";
 
 const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const ACCEPTED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime"];
-const ACCEPTED_TYPES = [...ACCEPTED_IMAGE_TYPES, ...ACCEPTED_VIDEO_TYPES];
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
-const MAX_VIDEO_SIZE = 200 * 1024 * 1024; // 200MB (영상은 더 클 수 있음)
+const MAX_VIDEO_SIZE = 200 * 1024 * 1024; // 200MB
 
 export default function ImageUpload() {
-  const { referenceImages, addReferenceImage, removeReferenceImage } =
-    useVideoStore();
+  const {
+    referenceImages,
+    addReferenceImage,
+    removeReferenceImage,
+    reorderReferenceImage,
+  } = useVideoStore();
 
   const inputRef = useRef<HTMLInputElement>(null);
   const [extracting, setExtracting] = useState(false);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const handleFiles = useCallback(
     async (files: FileList | null) => {
@@ -72,13 +77,43 @@ export default function ImageUpload() {
     [addReferenceImage]
   );
 
-  const handleDrop = useCallback(
+  const handleFileDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
-      handleFiles(e.dataTransfer.files);
+      // 파일 드롭인 경우에만 처리 (이미지 재정렬 드래그가 아닐 때)
+      if (e.dataTransfer.files.length > 0 && dragIndex === null) {
+        handleFiles(e.dataTransfer.files);
+      }
     },
-    [handleFiles]
+    [handleFiles, dragIndex]
   );
+
+  // 이미지 재정렬 드래그 핸들러
+  const handleImageDragStart = (index: number) => {
+    setDragIndex(index);
+  };
+
+  const handleImageDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (dragIndex !== null && dragIndex !== index) {
+      setDragOverIndex(index);
+    }
+  };
+
+  const handleImageDrop = (e: React.DragEvent, toIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (dragIndex !== null && dragIndex !== toIndex) {
+      reorderReferenceImage(dragIndex, toIndex);
+    }
+    setDragIndex(null);
+    setDragOverIndex(null);
+  };
+
+  const handleImageDragEnd = () => {
+    setDragIndex(null);
+    setDragOverIndex(null);
+  };
 
   return (
     <div className="space-y-3">
@@ -86,9 +121,9 @@ export default function ImageUpload() {
         참조 이미지 (Image-to-Video, 선택사항)
       </label>
 
-      {/* 드롭 영역 */}
+      {/* 파일 드롭 영역 */}
       <div
-        onDrop={handleDrop}
+        onDrop={handleFileDrop}
         onDragOver={(e) => e.preventDefault()}
         onClick={() => inputRef.current?.click()}
         className={`flex items-center justify-center gap-2 px-4 py-6 border-2 border-dashed border-gray-600 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-gray-800/30 transition-colors ${extracting ? "pointer-events-none opacity-60" : ""}`}
@@ -110,46 +145,60 @@ export default function ImageUpload() {
           className="hidden"
           onChange={(e) => {
             handleFiles(e.target.files);
-            // GAP-12: 같은 파일 재선택 가능하도록 input 값 초기화
             if (inputRef.current) inputRef.current.value = "";
           }}
         />
       </div>
 
-      {/* 이미지 미리보기 */}
+      {/* 이미지 미리보기 + 순서 번호 + 드래그 재정렬 */}
       {referenceImages.length > 0 && (
         <div className="flex flex-wrap gap-3">
           {referenceImages.map((img, i) => (
-            <div key={i} className="relative group">
+            <div
+              key={`${img.name}-${i}`}
+              draggable={referenceImages.length > 1}
+              onDragStart={() => handleImageDragStart(i)}
+              onDragOver={(e) => handleImageDragOver(e, i)}
+              onDrop={(e) => handleImageDrop(e, i)}
+              onDragEnd={handleImageDragEnd}
+              className={`relative group transition-all ${
+                referenceImages.length > 1 ? "cursor-grab active:cursor-grabbing" : ""
+              } ${dragIndex === i ? "opacity-40 scale-95" : ""} ${
+                dragOverIndex === i ? "ring-2 ring-blue-400 ring-offset-1 ring-offset-gray-900" : ""
+              }`}
+            >
               <img
                 src={img.previewUrl}
                 alt={img.name}
                 className="w-20 h-20 object-cover rounded-lg border border-gray-600"
+                draggable={false}
               />
+              {/* 순서 번호 */}
+              <span className="absolute top-0 left-0 w-5 h-5 bg-blue-600 text-white rounded-tl-lg rounded-br-lg text-[10px] font-bold flex items-center justify-center">
+                {i + 1}
+              </span>
+              {/* 삭제 버튼 */}
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  URL.revokeObjectURL(img.previewUrl);
+                  if (img.previewUrl.startsWith("blob:")) {
+                    URL.revokeObjectURL(img.previewUrl);
+                  }
                   removeReferenceImage(i);
                 }}
                 className="absolute -top-2 -right-2 w-5 h-5 bg-red-600 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 X
               </button>
-              {i === 0 && referenceImages.length > 1 && (
-                <span className="absolute bottom-0 left-0 right-0 text-center text-[10px] bg-blue-600/80 text-white rounded-b-lg">
-                  사용됨
-                </span>
-              )}
             </div>
           ))}
         </div>
       )}
 
       {referenceImages.length > 1 && (
-        <p className="text-xs text-amber-400">
-          Veo 3.1은 첫 번째 이미지만 참조 이미지로 사용합니다.
+        <p className="text-xs text-blue-400">
+          📋 이미지 순서대로 영상이 순차 생성됩니다. 드래그하여 순서를 변경할 수 있습니다.
         </p>
       )}
 
@@ -165,7 +214,6 @@ function fileToBase64(file: File): Promise<string> {
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result as string;
-      // "data:image/jpeg;base64,..." 형식에서 base64 부분만 추출
       const base64 = result.split(",")[1];
       resolve(base64);
     };
@@ -174,7 +222,7 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-const EXTRACT_TIMEOUT_MS = 30_000; // 30초 타임아웃
+const EXTRACT_TIMEOUT_MS = 30_000;
 
 function extractLastFrame(
   file: File
@@ -192,7 +240,7 @@ function extractLastFrame(
     const cleanup = () => {
       URL.revokeObjectURL(url);
       video.removeAttribute("src");
-      video.load(); // 리소스 해제
+      video.load();
     };
 
     const settle = (fn: () => void) => {
@@ -202,7 +250,6 @@ function extractLastFrame(
       fn();
     };
 
-    // GAP-03: 타임아웃 — 30초 내 추출 실패 시 reject
     const timer = setTimeout(() => {
       settle(() => {
         cleanup();
@@ -210,9 +257,7 @@ function extractLastFrame(
       });
     }, EXTRACT_TIMEOUT_MS);
 
-    // GAP-04: { once: true }로 이벤트 리스너 자동 정리
     video.addEventListener("loadedmetadata", () => {
-      // 마지막 프레임으로 이동 (끝에서 0.1초 전)
       video.currentTime = Math.max(0, video.duration - 0.1);
     }, { once: true });
 

@@ -23,104 +23,25 @@ export default function Home() {
     modelType,
     referenceImages,
     getCostString,
+    getTotalCostString,
     setStatus,
     setGeneration,
     setErrorMessage,
-    setVideoUrl,
+    addVideoUrl,
+    clearVideoUrls,
+    setBatchProgress,
     reset,
   } = useVideoStore();
 
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pollStartRef = useRef<number>(0);
+  const cancelledRef = useRef(false);
 
-  const stopPolling = useCallback(() => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
-  }, []);
-
-  const startPolling = useCallback(
-    (operationName: string, keyIndex?: number) => {
-      setStatus("polling");
-      pollStartRef.current = Date.now();
-
-      const keyParam = keyIndex != null ? `&keyIndex=${keyIndex}` : "";
-
-      pollingRef.current = setInterval(async () => {
-        // Gap Fix: 6분 타임아웃
-        if (Date.now() - pollStartRef.current > POLL_TIMEOUT) {
-          stopPolling();
-          setStatus("error");
-          setErrorMessage(
-            "동영상 생성 시간이 초과되었습니다 (6분). 나중에 다시 시도해주세요."
-          );
-          return;
-        }
-
-        try {
-          const res = await fetch(
-            `/api/status?name=${encodeURIComponent(operationName)}${keyParam}`
-          );
-          const data = await res.json();
-
-          if (data.error) {
-            stopPolling();
-            setStatus("error");
-            setErrorMessage(data.error.message);
-            return;
-          }
-
-          if (data.done) {
-            stopPolling();
-
-            if (data.videoUri) {
-              const downloadUrl = `/api/download?uri=${encodeURIComponent(data.videoUri)}${keyParam}`;
-              setVideoUrl(downloadUrl);
-              setStatus("completed");
-            } else if (data.error) {
-              setStatus("error");
-              setErrorMessage(data.error);
-            }
-          }
-        } catch {
-          stopPolling();
-          setStatus("error");
-          setErrorMessage("상태 확인 중 오류가 발생했습니다.");
-        }
-      }, POLL_INTERVAL);
-    },
-    [setStatus, setErrorMessage, setVideoUrl, stopPolling]
-  );
-
-  const handleGenerate = useCallback(async () => {
-    const prompt = getComposedPrompt();
-    if (!prompt.trim()) {
-      setErrorMessage("프롬프트를 입력해주세요.");
-      setStatus("error");
-      return;
-    }
-
-    if (prompt.length > 4096) {
-      setErrorMessage(`프롬프트가 너무 깁니다. (${prompt.length}/4096자)`);
-      setStatus("error");
-      return;
-    }
-
-    setStatus("generating");
-    setErrorMessage(null);
-    setVideoUrl(null);
-
-    try {
-      // 이미지가 있으면 첫 번째 이미지를 사용 (Veo는 단일 참조 이미지 지원)
-      const imageData =
-        referenceImages.length > 0
-          ? {
-              base64: referenceImages[0].base64,
-              mimeType: referenceImages[0].mimeType,
-            }
-          : undefined;
-
+  /** 단일 영상 생성 + 폴링 후 videoUrl 반환 */
+  const generateSingleVideo = useCallback(
+    async (
+      prompt: string,
+      imageData?: { base64: string; mimeType: string }
+    ): Promise<string> => {
+      // 1. 생성 요청
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -135,12 +56,7 @@ export default function Home() {
       });
 
       const data = await res.json();
-
-      if (data.error) {
-        setStatus("error");
-        setErrorMessage(data.error.message);
-        return;
-      }
+      if (data.error) throw new Error(data.error.message);
 
       setGeneration({
         operationName: data.operationName,
@@ -149,10 +65,143 @@ export default function Home() {
         keyIndex: data.keyIndex,
       });
 
-      startPolling(data.operationName, data.keyIndex);
-    } catch {
+      // 2. 폴링
+      const keyParam =
+        data.keyIndex != null ? `&keyIndex=${data.keyIndex}` : "";
+      const pollStart = Date.now();
+
+      return new Promise<string>((resolve, reject) => {
+        const interval = setInterval(async () => {
+          if (cancelledRef.current) {
+            clearInterval(interval);
+            reject(new Error("cancelled"));
+            return;
+          }
+
+          if (Date.now() - pollStart > POLL_TIMEOUT) {
+            clearInterval(interval);
+            reject(
+              new Error(
+                "동영상 생성 시간이 초과되었습니다 (6분). 나중에 다시 시도해주세요."
+              )
+            );
+            return;
+          }
+
+          try {
+            const statusRes = await fetch(
+              `/api/status?name=${encodeURIComponent(data.operationName)}${keyParam}`
+            );
+            const statusData = await statusRes.json();
+
+            if (statusData.error) {
+              clearInterval(interval);
+              reject(new Error(statusData.error.message));
+              return;
+            }
+
+            if (statusData.done) {
+              clearInterval(interval);
+              if (statusData.videoUri) {
+                const downloadUrl = `/api/download?uri=${encodeURIComponent(statusData.videoUri)}${keyParam}`;
+                resolve(downloadUrl);
+              } else {
+                reject(new Error("동영상 생성에 실패했습니다."));
+              }
+            }
+          } catch (err) {
+            clearInterval(interval);
+            reject(err);
+          }
+        }, POLL_INTERVAL);
+      });
+    },
+    [resolution, duration, aspectRatio, modelType, setGeneration]
+  );
+
+  const handleGenerate = useCallback(async () => {
+    const prompt = getComposedPrompt();
+    if (!prompt.trim()) {
+      setErrorMessage("프롬프트를 입력해주세요.");
       setStatus("error");
-      setErrorMessage("요청 중 오류가 발생했습니다.");
+      return;
+    }
+    if (prompt.length > 4096) {
+      setErrorMessage(`프롬프트가 너무 깁니다. (${prompt.length}/4096자)`);
+      setStatus("error");
+      return;
+    }
+
+    setStatus("generating");
+    setErrorMessage(null);
+    clearVideoUrls();
+    cancelledRef.current = false;
+
+    const imageCount = referenceImages.length;
+
+    try {
+      if (imageCount <= 1) {
+        // 단일 생성 (이미지 0~1개)
+        const imageData =
+          imageCount === 1
+            ? {
+                base64: referenceImages[0].base64,
+                mimeType: referenceImages[0].mimeType,
+              }
+            : undefined;
+
+        setBatchProgress(null);
+        setStatus("polling");
+        const url = await generateSingleVideo(prompt, imageData);
+        addVideoUrl(url);
+        setStatus("completed");
+      } else {
+        // 배치 생성 (이미지 2개 이상 — 순서대로 순차 생성)
+        setBatchProgress({ current: 1, total: imageCount });
+
+        for (let i = 0; i < imageCount; i++) {
+          if (cancelledRef.current) break;
+
+          setBatchProgress({ current: i + 1, total: imageCount });
+          setStatus("polling");
+
+          try {
+            const imageData = {
+              base64: referenceImages[i].base64,
+              mimeType: referenceImages[i].mimeType,
+            };
+            const url = await generateSingleVideo(prompt, imageData);
+            addVideoUrl(url);
+          } catch (err) {
+            if (
+              err instanceof Error &&
+              err.message === "cancelled"
+            ) {
+              break;
+            }
+            // 개별 실패는 건너뛰고 계속 진행
+            console.error(`이미지 ${i + 1} 생성 실패:`, err);
+          }
+        }
+
+        setBatchProgress(null);
+
+        // 결과 확인
+        const { videoUrls } = useVideoStore.getState();
+        if (videoUrls.length > 0) {
+          setStatus("completed");
+        } else {
+          setStatus("error");
+          setErrorMessage("모든 영상 생성에 실패했습니다.");
+        }
+      }
+    } catch (err) {
+      if (!(err instanceof Error && err.message === "cancelled")) {
+        setStatus("error");
+        setErrorMessage(
+          err instanceof Error ? err.message : "요청 중 오류가 발생했습니다."
+        );
+      }
     }
   }, [
     getComposedPrompt,
@@ -163,13 +212,27 @@ export default function Home() {
     referenceImages,
     setStatus,
     setErrorMessage,
-    setVideoUrl,
-    setGeneration,
-    startPolling,
+    clearVideoUrls,
+    addVideoUrl,
+    setBatchProgress,
+    generateSingleVideo,
   ]);
 
+  const handleCancel = useCallback(() => {
+    cancelledRef.current = true;
+    setBatchProgress(null);
+    const { videoUrls } = useVideoStore.getState();
+    if (videoUrls.length > 0) {
+      setStatus("completed");
+    } else {
+      setStatus("idle");
+    }
+  }, [setStatus, setBatchProgress]);
+
   const isGenerating = status === "generating" || status === "polling";
-  const costStr = getCostString();
+  const isBatch = referenceImages.length > 1;
+  const costStr = isBatch ? getTotalCostString() : getCostString();
+  const unitCostStr = getCostString();
 
   return (
     <PasswordGate>
@@ -179,6 +242,11 @@ export default function Home() {
         <h1 className="text-2xl font-bold">🎬 VeoMaking</h1>
         <span className="text-sm text-gray-400">
           예상 비용: {costStr}
+          {isBatch && (
+            <span className="text-xs text-gray-500">
+              {" "}({unitCostStr} × {referenceImages.length})
+            </span>
+          )}
         </span>
       </header>
 
@@ -195,23 +263,28 @@ export default function Home() {
         {/* 생성 옵션 */}
         <VideoOptions />
 
-        {/* 생성 버튼 */}
-        <button
-          type="button"
-          onClick={isGenerating ? undefined : handleGenerate}
-          disabled={isGenerating}
-          className={`w-full py-3 rounded-lg text-sm font-bold transition-all ${
-            isGenerating
-              ? "bg-gray-700 text-gray-400 cursor-not-allowed"
-              : "bg-blue-600 hover:bg-blue-700 text-white"
-          }`}
-        >
-          {isGenerating
-            ? "생성 중..."
-            : referenceImages.length > 0
-              ? `🖼️ Image-to-Video 생성하기 (${costStr})`
-              : `🎬 동영상 생성하기 (${costStr})`}
-        </button>
+        {/* 생성 / 취소 버튼 */}
+        {isGenerating ? (
+          <button
+            type="button"
+            onClick={handleCancel}
+            className="w-full py-3 rounded-lg text-sm font-bold bg-red-600 hover:bg-red-700 text-white transition-all"
+          >
+            ⏹ 생성 중단
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleGenerate}
+            className="w-full py-3 rounded-lg text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white transition-all"
+          >
+            {isBatch
+              ? `🖼️ ${referenceImages.length}개 이미지로 순차 생성 (${costStr})`
+              : referenceImages.length === 1
+                ? `🖼️ Image-to-Video 생성하기 (${costStr})`
+                : `🎬 동영상 생성하기 (${costStr})`}
+          </button>
+        )}
 
         {/* 생성 상태 */}
         <GenerationStatus />

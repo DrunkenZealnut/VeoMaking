@@ -13,6 +13,11 @@ import { getCostEstimate, formatCost } from "@/lib/cost";
 
 type Status = "idle" | "generating" | "polling" | "completed" | "error";
 
+interface BatchProgress {
+  current: number;
+  total: number;
+}
+
 interface VideoStore {
   // 프롬프트
   promptComponents: PromptComponents;
@@ -43,19 +48,26 @@ interface VideoStore {
   errorMessage: string | null;
   setErrorMessage: (msg: string | null) => void;
 
-  // 결과
-  videoUrl: string | null;
-  setVideoUrl: (url: string | null) => void;
+  // 결과 (복수 영상 지원)
+  videoUrls: string[];
+  addVideoUrl: (url: string) => void;
+  clearVideoUrls: () => void;
+
+  // 배치 진행 상태
+  batchProgress: BatchProgress | null;
+  setBatchProgress: (p: BatchProgress | null) => void;
 
   // 비용
   getCostString: () => string;
   getCostValue: () => number;
+  getTotalCostString: () => string;
 
   // 참조 이미지 (Image-to-Video)
   referenceImages: ReferenceImage[];
   addReferenceImage: (img: ReferenceImage) => void;
   removeReferenceImage: (index: number) => void;
   clearReferenceImages: () => void;
+  reorderReferenceImage: (fromIndex: number, toIndex: number) => void;
 
   // 프롬프트 도우미 열기/닫기
   helperOpen: boolean;
@@ -102,7 +114,6 @@ export const useVideoStore = create<VideoStore>((set, get) => ({
   modelType: "standard",
   setResolution: (resolution) => {
     set({ resolution });
-    // 1080p/4k는 8초만 지원
     if (resolution !== "720p") {
       set({ duration: "8" });
     }
@@ -119,9 +130,14 @@ export const useVideoStore = create<VideoStore>((set, get) => ({
   errorMessage: null,
   setErrorMessage: (errorMessage) => set({ errorMessage }),
 
-  // 결과
-  videoUrl: null,
-  setVideoUrl: (videoUrl) => set({ videoUrl }),
+  // 결과 (복수 영상)
+  videoUrls: [],
+  addVideoUrl: (url) => set((s) => ({ videoUrls: [...s.videoUrls, url] })),
+  clearVideoUrls: () => set({ videoUrls: [] }),
+
+  // 배치 진행 상태
+  batchProgress: null,
+  setBatchProgress: (batchProgress) => set({ batchProgress }),
 
   // 비용
   getCostString: () => {
@@ -133,6 +149,12 @@ export const useVideoStore = create<VideoStore>((set, get) => ({
     const { resolution, duration, modelType } = get();
     return getCostEstimate(resolution, duration, modelType).estimatedCost;
   },
+  getTotalCostString: () => {
+    const { resolution, duration, modelType, referenceImages } = get();
+    const unitCost = getCostEstimate(resolution, duration, modelType).estimatedCost;
+    const count = Math.max(1, referenceImages.length);
+    return formatCost(unitCost * count);
+  },
 
   // 참조 이미지
   referenceImages: [],
@@ -142,7 +164,6 @@ export const useVideoStore = create<VideoStore>((set, get) => ({
     set((s) => ({
       referenceImages: s.referenceImages.filter((_, i) => i !== index),
     })),
-  // GAP-09: blob URL 메모리 누수 방지
   clearReferenceImages: () =>
     set((s) => {
       s.referenceImages.forEach((img) => {
@@ -152,12 +173,19 @@ export const useVideoStore = create<VideoStore>((set, get) => ({
       });
       return { referenceImages: [] };
     }),
+  reorderReferenceImage: (fromIndex, toIndex) =>
+    set((s) => {
+      const images = [...s.referenceImages];
+      const [moved] = images.splice(fromIndex, 1);
+      images.splice(toIndex, 0, moved);
+      return { referenceImages: images };
+    }),
 
   // 프롬프트 도우미
   helperOpen: false,
   setHelperOpen: (helperOpen) => set({ helperOpen }),
 
-  // 리셋 (GAP-09: blob URL 해제 포함)
+  // 리셋
   reset: () =>
     set((s) => {
       s.referenceImages.forEach((img) => {
@@ -174,7 +202,8 @@ export const useVideoStore = create<VideoStore>((set, get) => ({
         status: "idle",
         generation: null,
         errorMessage: null,
-        videoUrl: null,
+        videoUrls: [],
+        batchProgress: null,
         referenceImages: [],
         useEnhanced: false,
         helperOpen: false,

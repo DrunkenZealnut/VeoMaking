@@ -24,12 +24,37 @@ export default function GenerationStatus() {
   if (status === "idle" || status === "completed") return null;
 
   if (status === "error") {
+    const isQuotaError =
+      errorMessage?.includes("할당량") || errorMessage?.includes("quota");
+
     return (
       <div className="p-4 bg-red-900/30 rounded-lg border border-red-700">
-        <p className="text-red-400 text-sm font-medium">생성 실패</p>
+        <p className="text-red-400 text-sm font-medium">
+          {isQuotaError ? "API 할당량 초과" : "생성 실패"}
+        </p>
         <p className="text-red-300 text-sm mt-1">
           {errorMessage ?? "알 수 없는 오류가 발생했습니다."}
         </p>
+        {isQuotaError && (
+          <div className="mt-3 space-y-1">
+            <a
+              href="https://aistudio.google.com/app/apikey"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:text-blue-300 text-xs underline block"
+            >
+              Google AI Studio에서 API 키 및 요금제 확인 →
+            </a>
+            <a
+              href="https://ai.dev/rate-limit"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:text-blue-300 text-xs underline block"
+            >
+              현재 사용량 모니터링 →
+            </a>
+          </div>
+        )}
       </div>
     );
   }

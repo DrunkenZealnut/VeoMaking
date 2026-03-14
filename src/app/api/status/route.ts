@@ -3,6 +3,7 @@ import { getOperationStatus } from "@/lib/veo-client";
 
 export async function GET(request: NextRequest) {
   const operationName = request.nextUrl.searchParams.get("name");
+  const keyIndexParam = request.nextUrl.searchParams.get("keyIndex");
 
   if (!operationName) {
     return NextResponse.json(
@@ -11,8 +12,10 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const keyIndex = keyIndexParam != null ? parseInt(keyIndexParam) : undefined;
+
   try {
-    const status = await getOperationStatus(operationName);
+    const status = await getOperationStatus(operationName, keyIndex);
     return NextResponse.json(status);
   } catch (error) {
     console.error("Status check error:", error);

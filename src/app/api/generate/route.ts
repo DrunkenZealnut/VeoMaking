@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { generateVideo } from "@/lib/veo-client";
+import {
+  generateVideo,
+  QuotaExceededError,
+  RateLimitError,
+} from "@/lib/veo-client";
 
 const MAX_PROMPT_LENGTH = 4096;
 // base64 이미지 최대 크기: 20MB
@@ -136,10 +140,36 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       operationName: result.operationName,
+      keyIndex: result.keyIndex,
       startedAt: Date.now(),
     });
   } catch (error) {
     console.error("Generate error:", error);
+
+    if (error instanceof QuotaExceededError) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "QUOTA_EXCEEDED",
+            message: error.message,
+          },
+        },
+        { status: 429 }
+      );
+    }
+
+    if (error instanceof RateLimitError) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "RATE_LIMITED",
+            message: error.message,
+            retryAfterMs: error.retryAfterMs,
+          },
+        },
+        { status: 429 }
+      );
+    }
 
     const message =
       error instanceof Error ? error.message : "동영상 생성에 실패했습니다.";

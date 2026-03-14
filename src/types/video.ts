@@ -105,6 +105,7 @@ export interface GenerationStatus {
   videoUri?: string;
   error?: string;
   startedAt: number;
+  keyIndex?: number;
 }
 
 /** 비용 계산 */

@@ -7,6 +7,8 @@ import ImageUpload from "@/components/ImageUpload";
 import VideoOptions from "@/components/VideoOptions";
 import GenerationStatus from "@/components/GenerationStatus";
 import VideoPreview from "@/components/VideoPreview";
+import ActionSuggestions from "@/components/ActionSuggestions";
+import PasswordGate from "@/components/PasswordGate";
 
 const POLL_INTERVAL = 10_000; // 10초
 const POLL_TIMEOUT = 6 * 60 * 1000; // 6분
@@ -39,9 +41,11 @@ export default function Home() {
   }, []);
 
   const startPolling = useCallback(
-    (operationName: string) => {
+    (operationName: string, keyIndex?: number) => {
       setStatus("polling");
       pollStartRef.current = Date.now();
+
+      const keyParam = keyIndex != null ? `&keyIndex=${keyIndex}` : "";
 
       pollingRef.current = setInterval(async () => {
         // Gap Fix: 6분 타임아웃
@@ -56,7 +60,7 @@ export default function Home() {
 
         try {
           const res = await fetch(
-            `/api/status?name=${encodeURIComponent(operationName)}`
+            `/api/status?name=${encodeURIComponent(operationName)}${keyParam}`
           );
           const data = await res.json();
 
@@ -71,7 +75,7 @@ export default function Home() {
             stopPolling();
 
             if (data.videoUri) {
-              const downloadUrl = `/api/download?uri=${encodeURIComponent(data.videoUri)}`;
+              const downloadUrl = `/api/download?uri=${encodeURIComponent(data.videoUri)}${keyParam}`;
               setVideoUrl(downloadUrl);
               setStatus("completed");
             } else if (data.error) {
@@ -142,9 +146,10 @@ export default function Home() {
         operationName: data.operationName,
         done: false,
         startedAt: data.startedAt,
+        keyIndex: data.keyIndex,
       });
 
-      startPolling(data.operationName);
+      startPolling(data.operationName, data.keyIndex);
     } catch {
       setStatus("error");
       setErrorMessage("요청 중 오류가 발생했습니다.");
@@ -167,6 +172,7 @@ export default function Home() {
   const costStr = getCostString();
 
   return (
+    <PasswordGate>
     <div className="max-w-2xl mx-auto px-4 py-8">
       {/* 헤더 */}
       <header className="flex items-center justify-between mb-8">
@@ -182,6 +188,9 @@ export default function Home() {
 
         {/* 참조 이미지 업로드 (Image-to-Video) */}
         <ImageUpload />
+
+        {/* 이미지 첨부 시 액션 제안 */}
+        <ActionSuggestions />
 
         {/* 생성 옵션 */}
         <VideoOptions />
@@ -232,5 +241,6 @@ export default function Home() {
         </p>
       </footer>
     </div>
+    </PasswordGate>
   );
 }

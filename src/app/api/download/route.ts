@@ -3,6 +3,7 @@ import { getDownloadUrl } from "@/lib/veo-client";
 
 export async function GET(request: NextRequest) {
   const uri = request.nextUrl.searchParams.get("uri");
+  const keyIndexParam = request.nextUrl.searchParams.get("keyIndex");
 
   if (!uri) {
     return NextResponse.json(
@@ -11,8 +12,10 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const keyIndex = keyIndexParam != null ? parseInt(keyIndexParam) : undefined;
+
   try {
-    const downloadUrl = getDownloadUrl(uri);
+    const downloadUrl = getDownloadUrl(uri, keyIndex);
 
     const response = await fetch(downloadUrl);
     if (!response.ok) {

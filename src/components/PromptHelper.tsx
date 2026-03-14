@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useRef, useEffect } from "react";
 import { useVideoStore } from "@/store/useVideoStore";
 import {
   CAMERA_ANGLES,
@@ -19,28 +20,112 @@ function PresetSelect<T extends string>({
 }: {
   label: string;
   icon: string;
-  presets: { value: T; label: string }[];
+  presets: { value: T; label: string; desc: string }[];
   value: T | undefined;
   onChange: (v: T | undefined) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const [hoveredDesc, setHoveredDesc] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const selectedLabel = value
+    ? presets.find((p) => p.value === value)?.label ?? "선택 안 함"
+    : "선택 안 함";
+
+  // 바깥 클릭 시 닫기
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+        setHoveredDesc(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2" ref={containerRef}>
       <span className="text-sm w-6 text-center">{icon}</span>
       <label className="text-sm text-gray-400 w-20 shrink-0">{label}</label>
-      <select
-        value={value ?? ""}
-        onChange={(e) =>
-          onChange(e.target.value ? (e.target.value as T) : undefined)
-        }
-        className="flex-1 bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 focus:border-blue-500 focus:outline-none"
-      >
-        <option value="">선택 안 함</option>
-        {presets.map((p) => (
-          <option key={p.value} value={p.value}>
-            {p.label}
-          </option>
-        ))}
-      </select>
+
+      <div className="relative flex-1">
+        {/* 트리거 버튼 */}
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(!open);
+            setHoveredDesc(null);
+          }}
+          className={`w-full text-left bg-gray-700 text-sm rounded px-2 py-1.5 border focus:outline-none flex items-center justify-between ${
+            open
+              ? "border-blue-500 text-white"
+              : value
+                ? "border-gray-600 text-white"
+                : "border-gray-600 text-gray-400"
+          }`}
+        >
+          <span className="truncate">{selectedLabel}</span>
+          <span
+            className={`text-[10px] text-gray-500 ml-1 transition-transform ${open ? "rotate-180" : ""}`}
+          >
+            ▼
+          </span>
+        </button>
+
+        {/* 드롭다운 메뉴 */}
+        {open && (
+          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-gray-700 border border-gray-600 rounded-lg shadow-xl overflow-hidden">
+            {/* 선택 안 함 */}
+            <button
+              type="button"
+              onMouseEnter={() => setHoveredDesc(null)}
+              onClick={() => {
+                onChange(undefined);
+                setOpen(false);
+                setHoveredDesc(null);
+              }}
+              className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-600 transition-colors ${
+                !value ? "text-blue-400" : "text-gray-400"
+              }`}
+            >
+              선택 안 함
+            </button>
+
+            {presets.map((p) => (
+              <button
+                key={p.value}
+                type="button"
+                onMouseEnter={() => setHoveredDesc(p.desc)}
+                onMouseLeave={() => setHoveredDesc(null)}
+                onClick={() => {
+                  onChange(p.value);
+                  setOpen(false);
+                  setHoveredDesc(null);
+                }}
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-600 transition-colors ${
+                  p.value === value ? "text-blue-400 bg-gray-600/50" : "text-gray-200"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+
+            {/* 호버 시 말풍선 */}
+            {hoveredDesc && (
+              <div className="border-t border-gray-600 px-3 py-2 bg-gray-800">
+                <p className="text-xs text-gray-300 leading-relaxed">
+                  {hoveredDesc}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

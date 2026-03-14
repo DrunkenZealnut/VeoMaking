@@ -142,26 +142,42 @@ export const useVideoStore = create<VideoStore>((set, get) => ({
     set((s) => ({
       referenceImages: s.referenceImages.filter((_, i) => i !== index),
     })),
-  clearReferenceImages: () => set({ referenceImages: [] }),
+  // GAP-09: blob URL 메모리 누수 방지
+  clearReferenceImages: () =>
+    set((s) => {
+      s.referenceImages.forEach((img) => {
+        if (img.previewUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(img.previewUrl);
+        }
+      });
+      return { referenceImages: [] };
+    }),
 
   // 프롬프트 도우미
   helperOpen: false,
   setHelperOpen: (helperOpen) => set({ helperOpen }),
 
-  // 리셋
+  // 리셋 (GAP-09: blob URL 해제 포함)
   reset: () =>
-    set({
-      promptComponents: { ...initialPrompt },
-      resolution: "720p",
-      duration: "8",
-      aspectRatio: "16:9",
-      modelType: "standard",
-      status: "idle",
-      generation: null,
-      errorMessage: null,
-      videoUrl: null,
-      referenceImages: [],
-      useEnhanced: false,
-      helperOpen: false,
+    set((s) => {
+      s.referenceImages.forEach((img) => {
+        if (img.previewUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(img.previewUrl);
+        }
+      });
+      return {
+        promptComponents: { ...initialPrompt },
+        resolution: "720p",
+        duration: "8",
+        aspectRatio: "16:9",
+        modelType: "standard",
+        status: "idle",
+        generation: null,
+        errorMessage: null,
+        videoUrl: null,
+        referenceImages: [],
+        useEnhanced: false,
+        helperOpen: false,
+      };
     }),
 }));

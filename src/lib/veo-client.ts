@@ -135,7 +135,11 @@ export async function generateVideo(
         console.log(
           `Video generation started with key ${keyIdx + 1}/${totalKeys}`
         );
-        return { operationName: operation.name!, keyIndex: keyIdx };
+        // GAP-13: non-null assertion 대신 런타임 검증
+        if (!operation.name) {
+          throw new Error("API 응답에 operation name이 포함되지 않았습니다.");
+        }
+        return { operationName: operation.name, keyIndex: keyIdx };
       } catch (error) {
         if (isRateLimitError(error)) {
           // 마지막 재시도가 아니면 딜레이 후 같은 키로 재시도

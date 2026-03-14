@@ -4,12 +4,21 @@ import {
   QuotaExceededError,
   RateLimitError,
 } from "@/lib/veo-client";
+import { isAuthenticated } from "@/lib/auth";
 
 const MAX_PROMPT_LENGTH = 4096;
 // base64 이미지 최대 크기: 20MB
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 
 export async function POST(request: Request) {
+  // GAP-02: 서버 측 인증 확인
+  if (!(await isAuthenticated())) {
+    return NextResponse.json(
+      { error: { code: "UNAUTHORIZED", message: "인증이 필요합니다." } },
+      { status: 401 }
+    );
+  }
+
   try {
     const body = await request.json();
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
+import { getSessionCookieConfig } from "@/lib/auth";
 
 export async function POST(request: Request) {
   const { password } = await request.json();
@@ -7,7 +8,7 @@ export async function POST(request: Request) {
 
   if (!correctPassword) {
     return NextResponse.json(
-      { error: "서버에 ACCESS_PASSWORD가 설정되지 않았습니다." },
+      { error: { code: "AUTH_MISSING_CONFIG", message: "서버에 ACCESS_PASSWORD가 설정되지 않았습니다." } },
       { status: 500 }
     );
   }
@@ -34,10 +35,20 @@ export async function POST(request: Request) {
 
   if (!success) {
     return NextResponse.json(
-      { error: "비밀번호가 올바르지 않습니다." },
+      { error: { code: "AUTH_FAILED", message: "비밀번호가 올바르지 않습니다." } },
       { status: 401 }
     );
   }
 
-  return NextResponse.json({ ok: true });
+  // GAP-02: 세션 쿠키 설정
+  const response = NextResponse.json({ ok: true });
+  const cookieConfig = getSessionCookieConfig();
+  response.cookies.set(cookieConfig.name, cookieConfig.value, {
+    httpOnly: cookieConfig.httpOnly,
+    secure: cookieConfig.secure,
+    sameSite: cookieConfig.sameSite,
+    path: cookieConfig.path,
+    maxAge: cookieConfig.maxAge,
+  });
+  return response;
 }

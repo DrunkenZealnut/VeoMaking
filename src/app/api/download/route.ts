@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDownloadUrl } from "@/lib/veo-client";
+import { isAuthenticated } from "@/lib/auth";
+
+const ALLOWED_URI_PREFIX = "https://generativelanguage.googleapis.com/";
 
 export async function GET(request: NextRequest) {
+  // GAP-02: 서버 측 인증 확인
+  if (!(await isAuthenticated())) {
+    return NextResponse.json(
+      { error: { code: "UNAUTHORIZED", message: "인증이 필요합니다." } },
+      { status: 401 }
+    );
+  }
+
   const uri = request.nextUrl.searchParams.get("uri");
   const keyIndexParam = request.nextUrl.searchParams.get("keyIndex");
 
@@ -12,7 +23,17 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const keyIndex = keyIndexParam != null ? parseInt(keyIndexParam) : undefined;
+  // GAP-01: SSRF 방지 — Google API 도메인만 허용
+  if (!uri.startsWith(ALLOWED_URI_PREFIX)) {
+    return NextResponse.json(
+      { error: { code: "INVALID_URI", message: "허용되지 않는 URI입니다." } },
+      { status: 400 }
+    );
+  }
+
+  const parsedKeyIndex = keyIndexParam != null ? parseInt(keyIndexParam) : undefined;
+  // GAP-15: NaN 검증
+  const keyIndex = parsedKeyIndex !== undefined && isNaN(parsedKeyIndex) ? 0 : parsedKeyIndex;
 
   try {
     const downloadUrl = getDownloadUrl(uri, keyIndex);

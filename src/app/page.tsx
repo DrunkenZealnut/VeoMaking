@@ -13,6 +13,13 @@ import PasswordGate from "@/components/PasswordGate";
 
 const POLL_INTERVAL = 10_000; // 10초
 const POLL_TIMEOUT = 6 * 60 * 1000; // 6분
+const AUTH_STORAGE_KEY = "veomaking_auth";
+
+/** 세션 만료 시 sessionStorage 초기화 후 재인증 */
+function handleSessionExpired() {
+  sessionStorage.removeItem(AUTH_STORAGE_KEY);
+  window.location.reload();
+}
 
 export default function Home() {
   const {
@@ -62,6 +69,13 @@ export default function Home() {
           const res = await fetch(
             `/api/status?name=${encodeURIComponent(operationName)}${keyParam}`
           );
+
+          if (res.status === 401) {
+            stopPolling();
+            handleSessionExpired();
+            return;
+          }
+
           const data = await res.json();
 
           if (data.error) {
@@ -80,7 +94,11 @@ export default function Home() {
               setStatus("completed");
             } else if (data.error) {
               setStatus("error");
-              setErrorMessage(data.error);
+              setErrorMessage(
+                typeof data.error === "string"
+                  ? data.error
+                  : data.error.message ?? "동영상 생성에 실패했습니다."
+              );
             }
           }
         } catch {
@@ -136,6 +154,11 @@ export default function Home() {
           image: imageData,
         }),
       });
+
+      if (res.status === 401) {
+        handleSessionExpired();
+        return;
+      }
 
       const data = await res.json();
 
